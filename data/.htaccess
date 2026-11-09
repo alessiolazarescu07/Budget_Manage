@@ -1,0 +1,10 @@
+# Protezione file database SQLite e dati sensibili
+<FilesMatch "\.(sqlite|sqlite3|db|json|lock)$">
+    Order deny,allow
+    Deny from all
+</FilesMatch>
+
+# Apache 2.4+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
