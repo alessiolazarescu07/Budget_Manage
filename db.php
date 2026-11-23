@@ -563,7 +563,7 @@ class BudgetDB {
         $this->pdo->beginTransaction();
         try {
             if ($type === 'vault') {
-                $stmt = $this->pdo->prepare("SELECT amount FROM vaults WHERE id = :id FOR UPDATE");
+                $stmt = $this->pdo->prepare("SELECT amount FROM vaults WHERE id = :id");
                 $stmt->execute([':id' => $id]);
                 $row = $stmt->fetch();
                 if (!$row) throw new RuntimeException("Salvadanaio non trovato.");
@@ -580,7 +580,7 @@ class BudgetDB {
                 $up->execute([':amt' => $new, ':id' => $id]);
 
             } elseif ($type === 'goal') {
-                $stmt = $this->pdo->prepare("SELECT current FROM goals WHERE id = :id FOR UPDATE");
+                $stmt = $this->pdo->prepare("SELECT current FROM goals WHERE id = :id");
                 $stmt->execute([':id' => $id]);
                 $row = $stmt->fetch();
                 if (!$row) throw new RuntimeException("Traguardo non trovato.");
