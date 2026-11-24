@@ -231,18 +231,18 @@
           
           <!-- Stat Summary Cards -->
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-            <!-- Saldo Totale -->
+            <!-- Saldo Disponibile -->
             <div class="glass-card p-5 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 shadow-sm relative overflow-hidden group">
               <div class="flex items-center justify-between">
-                <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Patrimonio Netto</span>
+                <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Saldo Disponibile</span>
                 <div class="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 text-indigo-500 flex items-center justify-center">
-                  <i class="fa-solid fa-scale-balanced text-sm"></i>
+                  <i class="fa-solid fa-wallet text-sm"></i>
                 </div>
               </div>
               <h3 id="statTotalBalance" class="text-2xl sm:text-3xl font-extrabold mt-2 tracking-tight text-slate-900 dark:text-white">€ 0,00</h3>
-              <div class="mt-2 flex items-center text-xs text-slate-400">
-                <span id="statSavingsRate" class="text-emerald-500 font-semibold mr-1.5 flex items-center"><i class="fa-solid fa-shield-halved mr-1"></i>0%</span>
-                tasso di risparmio
+              <div class="mt-2 flex items-center justify-between text-xs text-slate-400">
+                <span>Patrimonio: <strong id="statNetWorth" class="text-slate-700 dark:text-slate-300">€ 0,00</strong></span>
+                <span id="statSavingsRate" class="text-emerald-500 font-semibold flex items-center"><i class="fa-solid fa-shield-halved mr-1"></i>0%</span>
               </div>
             </div>
 
@@ -799,7 +799,10 @@
       </div>
 
       <div class="mt-4 space-y-4">
-        <p id="transferItemName" class="text-sm text-slate-500 font-medium"></p>
+        <div>
+          <p id="transferItemName" class="text-sm text-slate-500 font-medium"></p>
+          <p id="transferAvailableNote" class="text-xs text-indigo-600 dark:text-indigo-400 font-semibold mt-0.5"></p>
+        </div>
         
         <div>
           <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Importo (€)</label>
@@ -1172,14 +1175,21 @@
       });
 
       const totalVaults = appData.vaults.reduce((acc, v) => acc + (parseFloat(v.amount) || 0), 0);
+      const totalGoals = appData.goals.reduce((acc, g) => acc + (parseFloat(g.current) || 0), 0);
+      const totalSavings = totalVaults + totalGoals;
+
       const emergencyVault = appData.vaults.find(v => v.isEmergency || v.is_emergency);
       const emergencyTotal = emergencyVault ? parseFloat(emergencyVault.amount) : 0;
 
-      const netLiquid = totalIncomeAll - totalExpenseAll;
-      const netTotal = netLiquid + totalVaults;
+      // Il patrimonio totale effettivo deriva da tutte le entrate meno tutte le uscite registrate
+      const netTotal = totalIncomeAll - totalExpenseAll;
+      // Il saldo liquido disponibile sul conto è il totale al netto dei fondi accantonati nei risparmi e traguardi
+      const netLiquid = netTotal - totalSavings;
 
       let savingsRate = 0;
-      if (currentMonthIncome > 0) {
+      if (netTotal > 0 && totalSavings > 0) {
+        savingsRate = Math.min(100, Math.max(0, Math.round((totalSavings / netTotal) * 100)));
+      } else if (currentMonthIncome > 0) {
         const netMonth = currentMonthIncome - currentMonthExpense;
         savingsRate = Math.max(0, Math.round((netMonth / currentMonthIncome) * 100));
       }
@@ -1190,6 +1200,8 @@
         currentMonthIncome,
         currentMonthExpense,
         totalVaults,
+        totalGoals,
+        totalSavings,
         emergencyTotal,
         savingsRate
       };
@@ -1201,10 +1213,16 @@
     function renderDashboard() {
       const stats = calculateStats();
 
-      document.getElementById('statTotalBalance').textContent = formatCurrency(stats.netTotal);
+      // Saldo Disponibile sul Conto (al netto dei risparmi)
+      document.getElementById('statTotalBalance').textContent = formatCurrency(stats.netLiquid);
+      const netWorthEl = document.getElementById('statNetWorth');
+      if (netWorthEl) {
+        netWorthEl.textContent = formatCurrency(stats.netTotal);
+      }
       document.getElementById('statMonthlyIncome').textContent = formatCurrency(stats.currentMonthIncome);
       document.getElementById('statMonthlyExpense').textContent = formatCurrency(stats.currentMonthExpense);
-      document.getElementById('statTotalSavings').textContent = formatCurrency(stats.totalVaults);
+      // Totale Risparmi Accantonati (Salvadanaio + Traguardi)
+      document.getElementById('statTotalSavings').textContent = formatCurrency(stats.totalSavings);
       document.getElementById('statSavingsRate').innerHTML = `<i class="fa-solid fa-arrow-up-right-dots mr-1"></i>${stats.savingsRate}%`;
       document.getElementById('statGoalsCount').textContent = `${appData.goals.length} traguardi`;
       document.getElementById('badge-tx-count').textContent = appData.transactions.length;
@@ -1821,6 +1839,11 @@
       currentTransferTarget = { type, id, name };
       document.getElementById('transferModalTitle').textContent = `Fondi per "${name}"`;
       document.getElementById('transferItemName').textContent = type === 'vault' ? 'Salvadanaio Digitale' : 'Traguardo Personale';
+      const stats = calculateStats();
+      const availEl = document.getElementById('transferAvailableNote');
+      if (availEl) {
+        availEl.textContent = `Disponibile sul Conto: ${formatCurrency(stats.netLiquid)}`;
+      }
       document.getElementById('transferAmount').value = '';
       openModal('transferModal');
     }
@@ -1833,6 +1856,13 @@
       }
 
       const { type, id, name } = currentTransferTarget;
+
+      if (action === 'deposit') {
+        const stats = calculateStats();
+        if (stats.netLiquid < amount) {
+          showToast(`Nota: l'importo supera la liquidità disponibile (${formatCurrency(stats.netLiquid)}).`, 'warning');
+        }
+      }
 
       if (isServerConnected) {
         try {
@@ -1920,18 +1950,22 @@
             </div>
           </div>
 
-          <div class="grid grid-cols-3 gap-4 mb-8">
-            <div class="p-4 bg-slate-50 border border-slate-200 rounded-lg">
-              <span class="text-[11px] font-bold text-slate-400 uppercase">Patrimonio Netto</span>
-              <p class="text-xl font-extrabold text-slate-900 mt-1">${formatCurrency(stats.netTotal)}</p>
+          <div class="grid grid-cols-4 gap-3 mb-8">
+            <div class="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+              <span class="text-[10px] font-bold text-slate-500 uppercase">Patrimonio Totale</span>
+              <p class="text-lg font-extrabold text-slate-900 mt-1">${formatCurrency(stats.netTotal)}</p>
             </div>
-            <div class="p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
-              <span class="text-[11px] font-bold text-emerald-600 uppercase">Entrate del Mese</span>
-              <p class="text-xl font-extrabold text-emerald-700 mt-1">${formatCurrency(stats.currentMonthIncome)}</p>
+            <div class="p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+              <span class="text-[10px] font-bold text-indigo-600 uppercase">Disponibile (Conto)</span>
+              <p class="text-lg font-extrabold text-indigo-700 mt-1">${formatCurrency(stats.netLiquid)}</p>
             </div>
-            <div class="p-4 bg-rose-50 border border-rose-200 rounded-lg">
-              <span class="text-[11px] font-bold text-rose-600 uppercase">Uscite del Mese</span>
-              <p class="text-xl font-extrabold text-rose-700 mt-1">${formatCurrency(stats.currentMonthExpense)}</p>
+            <div class="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <span class="text-[10px] font-bold text-amber-600 uppercase">Risparmi Totali</span>
+              <p class="text-lg font-extrabold text-amber-700 mt-1">${formatCurrency(stats.totalSavings)}</p>
+            </div>
+            <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+              <span class="text-[10px] font-bold text-emerald-600 uppercase">Entrate del Mese</span>
+              <p class="text-lg font-extrabold text-emerald-700 mt-1">${formatCurrency(stats.currentMonthIncome)}</p>
             </div>
           </div>
 
